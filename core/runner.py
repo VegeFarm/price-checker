@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from core.db import create_tables, get_session
 from core.repository import load_runtime_config, save_run_result
@@ -39,7 +39,7 @@ def apply_price_rule(display_name, mall_name, price_text, price_rules):
 
 def run_price_check(trigger_type: str = 'manual') -> dict:
     create_tables()
-    started_at = datetime.now()
+    started_at = datetime.now(timezone.utc)
     session = get_session()
     rows = []
     message_text = ''
@@ -78,7 +78,7 @@ def run_price_check(trigger_type: str = 'manual') -> dict:
                 time.sleep(0.2)
 
         message_text = build_message_text(results)
-        finished_at = datetime.now()
+        finished_at = datetime.now(timezone.utc)
         run_id = save_run_result(
             session=session,
             trigger_type=trigger_type,
@@ -97,16 +97,16 @@ def run_price_check(trigger_type: str = 'manual') -> dict:
             'message_text': message_text,
             'rows': rows,
         }
-    except Exception as e:
-        finished_at = datetime.now()
-        run_id = save_run_result(
+    except Exception:
+        finished_at = datetime.now(timezone.utc)
+        save_run_result(
             session=session,
             trigger_type=trigger_type,
             status='fail',
             started_at=started_at,
             finished_at=finished_at,
             message_text=message_text,
-            error_text=str(e),
+            error_text='실행 중 오류가 발생했습니다.',
             rows=rows,
         )
         raise
