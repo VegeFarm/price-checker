@@ -17,6 +17,20 @@ def format_display_time(dt):
     return dt.astimezone(KST).strftime('%Y-%m-%d %H:%M:%S')
 
 
+def normalize_item_names(raw_names: list[str]) -> list[str]:
+    cleaned = []
+    seen = set()
+    for raw in raw_names:
+        name = str(raw).strip()
+        if not name or name.lower() in {'nan', 'none'}:
+            continue
+        if name in seen:
+            continue
+        cleaned.append(name)
+        seen.add(name)
+    return cleaned
+
+
 def ensure_items_from_search_rules(session: Session, item_names: list[str]) -> None:
     existing_items = get_items(session)
     existing_names = {item.display_name for item in existing_items}
@@ -32,7 +46,6 @@ def ensure_items_from_search_rules(session: Session, item_names: list[str]) -> N
 
 def sync_items_to_search_rules(session: Session, item_names: list[str]) -> None:
     existing_items = get_items(session)
-    existing_by_name = {item.display_name: item for item in existing_items}
     item_names_set = set(item_names)
 
     for item in existing_items:
@@ -42,6 +55,7 @@ def sync_items_to_search_rules(session: Session, item_names: list[str]) -> None:
             session.execute(delete(PriceRule).where(PriceRule.item_id == item.id))
             session.delete(item)
     session.commit()
+    session.expire_all()
 
 
 def get_malls(session: Session, enabled_only: bool = False) -> list[Mall]:
@@ -78,7 +92,7 @@ def save_search_keyword_df(session: Session, df: pd.DataFrame) -> None:
     malls = get_malls(session)
     mall_by_name = {m.mall_name: m for m in malls}
 
-    item_names = [str(x).strip() for x in df['상품명'].tolist() if str(x).strip()]
+    item_names = normalize_item_names(df['상품명'].tolist())
     ensure_items_from_search_rules(session, item_names)
     sync_items_to_search_rules(session, item_names)
     item_by_name = {i.display_name: i for i in get_items(session)}
@@ -285,9 +299,9 @@ def save_run_result(session: Session, trigger_type: str, status: str, started_at
 def get_recent_runs_df(session: Session, limit: int = 3) -> pd.DataFrame:
     rows = []
     stmt = select(RunHistory).order_by(RunHistory.id.desc()).limit(limit)
-    for run in session.scalars(stmt).all():
+    for idx, run in enumerate(session.scalars(stmt).all(), start=1):
         rows.append({
-            'run_id': run.id,
+            'run_id': idx,
             '구분': run.trigger_type,
             '상태': run.status,
             '시작': format_display_time(run.started_at),
@@ -295,6 +309,20 @@ def get_recent_runs_df(session: Session, limit: int = 3) -> pd.DataFrame:
             '에러': run.error_text,
         })
     return pd.DataFrame(rows)
+
+
+def get_recent_runs_meta(session: Session, limit: int = 3) -> list[dict]:
+    rows = []
+    stmt = select(RunHistory).order_by(RunHistory.id.desc()).limit(limit)
+    for idx, run in enumerate(session.scalars(stmt).all(), start=1):
+        rows.append({
+            'run_id': idx,
+            'actual_run_id': run.id,
+            '구분': run.trigger_type,
+            '상태': run.status,
+            '시작': format_display_time(run.started_at),
+        })
+    return rows
 
 
 def get_run_history(session: Session, run_id: int) -> RunHistory | None:
