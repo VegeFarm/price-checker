@@ -1,6 +1,6 @@
 from __future__ import annotations
-from datetime import timedelta
 from zoneinfo import ZoneInfo
+from collections import defaultdict
 import pandas as pd
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
@@ -331,3 +331,57 @@ def get_run_history(session: Session, run_id: int) -> RunHistory | None:
 
 def get_latest_run(session: Session) -> RunHistory | None:
     return session.scalars(select(RunHistory).order_by(RunHistory.id.desc()).limit(1)).first()
+
+
+def _price_to_int(price_text: str) -> int | None:
+    text = str(price_text or '').replace(',', '').strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except Exception:
+        return None
+
+
+def build_run_side_summary(run: RunHistory) -> tuple[list[dict], list[dict]]:
+    grouped: dict[str, list[RunPriceResult]] = defaultdict(list)
+    for row in run.results:
+        grouped[row.item_name].append(row)
+
+    large_gap_items: list[dict] = []
+    missing_price_items: list[dict] = []
+
+    for item_name, rows in grouped.items():
+        priced = []
+        missing = []
+        for row in rows:
+            value = _price_to_int(row.price_text)
+            if value is None:
+                missing.append(row.mall_display_name)
+            else:
+                priced.append((row.mall_display_name, value))
+
+        if missing:
+            missing_price_items.append({
+                'item_name': item_name,
+                'missing_malls': missing,
+            })
+
+        if len(priced) >= 2:
+            min_mall, min_price = min(priced, key=lambda x: x[1])
+            max_mall, max_price = max(priced, key=lambda x: x[1])
+            diff = max_price - min_price
+            ratio = (diff / min_price) if min_price else 0
+            if diff >= 3000 or (diff >= 1500 and ratio >= 0.25):
+                large_gap_items.append({
+                    'item_name': item_name,
+                    'min_mall': min_mall,
+                    'min_price': f'{min_price:,}',
+                    'max_mall': max_mall,
+                    'max_price': f'{max_price:,}',
+                    'diff_price': f'{diff:,}',
+                })
+
+    large_gap_items.sort(key=lambda x: int(x['diff_price'].replace(',', '')), reverse=True)
+    missing_price_items.sort(key=lambda x: x['item_name'])
+    return large_gap_items, missing_price_items
