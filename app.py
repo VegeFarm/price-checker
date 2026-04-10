@@ -2,7 +2,7 @@ import streamlit as st
 from core.auth import ensure_login
 from core.db import create_tables, get_session
 from core.runner import run_price_check
-from core.repository import get_recent_runs_df, get_latest_run
+from core.repository import get_latest_run
 
 st.set_page_config(page_title='채소팜 가격비교 관리자', layout='wide')
 create_tables()
@@ -12,10 +12,10 @@ st.markdown(
     """
     <style>
     div.stButton > button {
-        font-size: 1.4rem;
+        font-size: 1.55rem;
         font-weight: 700;
-        min-height: 3.4rem;
-        padding: 0.4rem 1.8rem;
+        min-height: 3.8rem;
+        padding: 0.5rem 2.2rem;
     }
     </style>
     """,
@@ -34,12 +34,8 @@ if st.button('지금 실행', type='primary'):
 
 session = get_session()
 try:
-    recent_df = get_recent_runs_df(session, limit=3)
-    if not recent_df.empty:
-        st.dataframe(recent_df, use_container_width=True, hide_index=True)
-
     latest_run = get_latest_run(session)
     if latest_run and latest_run.message_text:
-        st.text_area('결과 복사', value=latest_run.message_text, height=360)
+        st.text_area('결과 복사', value=latest_run.message_text, height=420)
 finally:
     session.close()
