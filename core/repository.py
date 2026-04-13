@@ -329,6 +329,11 @@ def get_run_history(session: Session, run_id: int) -> RunHistory | None:
     return session.get(RunHistory, run_id)
 
 
+def get_previous_run(session: Session, run_id: int) -> RunHistory | None:
+    stmt = select(RunHistory).where(RunHistory.id < run_id).order_by(RunHistory.id.desc()).limit(1)
+    return session.scalars(stmt).first()
+
+
 def get_latest_run(session: Session) -> RunHistory | None:
     return session.scalars(select(RunHistory).order_by(RunHistory.id.desc()).limit(1)).first()
 
@@ -355,6 +360,21 @@ def _format_signed_price(value: int) -> str:
 
 def _format_signed_percent(value: float) -> str:
     return f"{value * 100:+.1f}%"
+
+
+def build_our_price_map(run: RunHistory | None) -> dict[str, int]:
+    if run is None:
+        return {}
+
+    price_map: dict[str, int] = {}
+    for row in run.results:
+        if not _is_our_mall(row):
+            continue
+        value = _price_to_int(row.price_text)
+        if value is None:
+            continue
+        price_map[row.item_name] = value
+    return price_map
 
 
 def build_run_side_summary(run: RunHistory) -> tuple[list[dict], list[dict]]:
