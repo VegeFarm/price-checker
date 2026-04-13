@@ -377,6 +377,24 @@ def build_our_price_map(run: RunHistory | None) -> dict[str, int]:
     return price_map
 
 
+def build_price_map_by_item_mall(run: RunHistory | None) -> dict[str, dict[str, int]]:
+    if run is None:
+        return {}
+
+    price_map: dict[str, dict[str, int]] = defaultdict(dict)
+    for row in run.results:
+        value = _price_to_int(row.price_text)
+        if value is None:
+            continue
+
+        item_prices = price_map[row.item_name]
+        item_prices[str(row.mall_display_name).strip()] = value
+        raw_mall_name = str(row.mall_name).strip()
+        if raw_mall_name:
+            item_prices[raw_mall_name] = value
+    return dict(price_map)
+
+
 def build_run_side_summary(run: RunHistory) -> tuple[list[dict], list[dict]]:
     grouped: dict[str, list[RunPriceResult]] = defaultdict(list)
     for row in run.results:

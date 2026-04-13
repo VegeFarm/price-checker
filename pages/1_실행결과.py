@@ -8,7 +8,7 @@ from core.repository import (
     get_run_history,
     get_previous_run,
     build_run_side_summary,
-    build_our_price_map,
+    build_price_map_by_item_mall,
 )
 
 
@@ -46,12 +46,13 @@ def _parse_item_name(line: str) -> str | None:
     return line[1:].strip()
 
 
-def _parse_our_price_line(line: str) -> tuple[str, int | None] | None:
-    match = re.match(r'^\s*(우리)\s*-\s*(.*)$', line.strip())
+def _parse_price_line(line: str) -> tuple[str, str, int | None] | None:
+    match = re.match(r'^\s*([^*\-][^-]*?)\s*-\s*(.*)$', line.strip())
     if not match:
         return None
+    mall_name = match.group(1).strip()
     price_text = match.group(2).strip()
-    return line, _price_to_int(price_text)
+    return line, mall_name, _price_to_int(price_text)
 
 
 def _format_delta_html(delta: int) -> str:
@@ -62,7 +63,7 @@ def _format_delta_html(delta: int) -> str:
     return f' <span style="color: {color}; font-weight: 700;">({sign}{abs(delta):,})</span>'
 
 
-def build_message_html_with_previous_diff(message_text: str, previous_our_prices: dict[str, int]) -> str:
+def build_message_html_with_previous_diff(message_text: str, previous_price_map: dict[str, dict[str, int]]) -> str:
     current_item = ''
     rendered_lines: list[str] = []
 
@@ -74,10 +75,10 @@ def build_message_html_with_previous_diff(message_text: str, previous_our_prices
             rendered_lines.append(f'<strong>{html.escape(line)}</strong>')
             continue
 
-        parsed = _parse_our_price_line(line)
+        parsed = _parse_price_line(line)
         if parsed and current_item:
-            original_line, current_price = parsed
-            previous_price = previous_our_prices.get(current_item)
+            original_line, mall_name, current_price = parsed
+            previous_price = previous_price_map.get(current_item, {}).get(mall_name)
             base_html = html.escape(original_line)
             if current_price is not None and previous_price is not None:
                 delta = current_price - previous_price
@@ -114,13 +115,13 @@ try:
     if run:
         large_gap_items, _ = build_run_side_summary(run)
         previous_run = get_previous_run(session, run.id)
-        previous_our_prices = build_our_price_map(previous_run)
+        previous_price_map = build_price_map_by_item_mall(previous_run)
 
-        left_pad, center_col, right_pad = st.columns([1, 1.8, 1])
+        left_pad, center_col, right_pad = st.columns([1.65, 1.45, 0.9])
         with center_col:
             render_large_gap_summary(large_gap_items)
 
         st.subheader('결과')
-        st.markdown(build_message_html_with_previous_diff(run.message_text, previous_our_prices), unsafe_allow_html=True)
+        st.markdown(build_message_html_with_previous_diff(run.message_text, previous_price_map), unsafe_allow_html=True)
 finally:
     session.close()
