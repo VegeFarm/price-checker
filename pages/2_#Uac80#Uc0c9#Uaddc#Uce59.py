@@ -1,0 +1,20 @@
+import streamlit as st
+from core.auth import ensure_login
+from core.db import create_tables, get_session
+from core.repository import get_search_keyword_df, save_search_keyword_df
+
+create_tables()
+ensure_login()
+
+st.title('검색 규칙')
+st.caption('상품명 x 쇼핑몰명별 검색 키워드를 수정합니다.')
+session = get_session()
+try:
+    df = get_search_keyword_df(session)
+    edited_df = st.data_editor(df, use_container_width=True, num_rows='dynamic', hide_index=True)
+    if st.button('검색 규칙 저장'):
+        save_search_keyword_df(session, edited_df)
+        st.success('검색 규칙이 저장되었습니다.')
+        st.rerun()
+finally:
+    session.close()

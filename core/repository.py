@@ -343,6 +343,20 @@ def _price_to_int(price_text: str) -> int | None:
         return None
 
 
+def _is_our_mall(row: RunPriceResult) -> bool:
+    display_name = str(row.mall_display_name or '').strip()
+    mall_name = str(row.mall_name or '').strip()
+    return display_name == '우리' or mall_name == '채소팜'
+
+
+def _format_signed_price(value: int) -> str:
+    return f"{value:+,}"
+
+
+def _format_signed_percent(value: float) -> str:
+    return f"{value * 100:+.1f}%"
+
+
 def build_run_side_summary(run: RunHistory) -> tuple[list[dict], list[dict]]:
     grouped: dict[str, list[RunPriceResult]] = defaultdict(list)
     for row in run.results:
@@ -352,14 +366,19 @@ def build_run_side_summary(run: RunHistory) -> tuple[list[dict], list[dict]]:
     missing_price_items: list[dict] = []
 
     for item_name, rows in grouped.items():
-        priced = []
-        missing = []
+        our_row: RunPriceResult | None = None
+        competitor_priced: list[tuple[str, int]] = []
+        missing: list[str] = []
+
         for row in rows:
             value = _price_to_int(row.price_text)
             if value is None:
                 missing.append(row.mall_display_name)
+                continue
+            if _is_our_mall(row):
+                our_row = row
             else:
-                priced.append((row.mall_display_name, value))
+                competitor_priced.append((row.mall_display_name, value))
 
         if missing:
             missing_price_items.append({
@@ -367,21 +386,57 @@ def build_run_side_summary(run: RunHistory) -> tuple[list[dict], list[dict]]:
                 'missing_malls': missing,
             })
 
-        if len(priced) >= 2:
-            min_mall, min_price = min(priced, key=lambda x: x[1])
-            max_mall, max_price = max(priced, key=lambda x: x[1])
-            diff = max_price - min_price
-            ratio = (diff / min_price) if min_price else 0
-            if diff >= 3000 or (diff >= 1500 and ratio >= 0.25):
-                large_gap_items.append({
-                    'item_name': item_name,
-                    'min_mall': min_mall,
-                    'min_price': f'{min_price:,}',
-                    'max_mall': max_mall,
-                    'max_price': f'{max_price:,}',
-                    'diff_price': f'{diff:,}',
-                })
+        if our_row is None:
+            continue
 
-    large_gap_items.sort(key=lambda x: int(x['diff_price'].replace(',', '')), reverse=True)
+        our_price = _price_to_int(our_row.price_text)
+        if our_price is None or not competitor_priced:
+            continue
+
+        competitor_values = [price for _, price in competitor_priced]
+        avg_price = round(sum(competitor_values) / len(competitor_values))
+        min_mall, min_price = min(competitor_priced, key=lambda x: x[1])
+
+        avg_diff = our_price - avg_price
+        avg_ratio = (avg_diff / avg_price) if avg_price else 0
+        min_diff = our_price - min_price
+        min_ratio = (min_diff / min_price) if min_price else 0
+
+        is_high = avg_diff >= 2000 and avg_ratio >= 0.15
+        is_low = avg_diff <= -1500 and avg_ratio <= -0.15
+        has_min_gap = min_diff >= 3000 and min_ratio >= 0.15
+        is_similar = abs(avg_diff) <= 1000 and abs(avg_ratio) <= 0.10
+
+        if is_high:
+            status = '시장평균보다 높음'
+        elif is_low:
+            status = '시장평균보다 낮음'
+        elif is_similar:
+            status = '평균가는 유사'
+        else:
+            status = '주의'
+
+        tags = [status]
+        if has_min_gap:
+            tags.append('최저가와 격차 큼')
+
+        should_show = is_high or is_low or has_min_gap
+        if should_show:
+            severity_score = max(abs(avg_diff), abs(min_diff), int(abs(avg_ratio) * 1000), int(abs(min_ratio) * 1000))
+            large_gap_items.append({
+                'item_name': item_name,
+                'our_price': f'{our_price:,}',
+                'avg_price': f'{avg_price:,}',
+                'min_price': f'{min_price:,}',
+                'min_mall': min_mall,
+                'avg_diff_amount': _format_signed_price(avg_diff),
+                'avg_diff_ratio': _format_signed_percent(avg_ratio),
+                'min_diff_amount': _format_signed_price(min_diff),
+                'min_diff_ratio': _format_signed_percent(min_ratio),
+                'status_text': ' · '.join(tags),
+                'severity_score': severity_score,
+            })
+
+    large_gap_items.sort(key=lambda x: x['severity_score'], reverse=True)
     missing_price_items.sort(key=lambda x: x['item_name'])
     return large_gap_items, missing_price_items
