@@ -117,11 +117,13 @@ try:
         previous_run = get_previous_run(session, run.id)
         previous_price_map = build_price_map_by_item_mall(previous_run)
 
-        left_pad, center_col, right_pad = st.columns([1.65, 1.45, 0.9])
-        with center_col:
+        result_col, spacer_col, summary_col = st.columns([2.55, 0.12, 1.08])
+        with result_col:
+            st.subheader('결과')
+            st.markdown(build_message_html_with_previous_diff(run.message_text, previous_price_map), unsafe_allow_html=True)
+        with spacer_col:
+            st.empty()
+        with summary_col:
             render_large_gap_summary(large_gap_items)
-
-        st.subheader('결과')
-        st.markdown(build_message_html_with_previous_diff(run.message_text, previous_price_map), unsafe_allow_html=True)
 finally:
     session.close()
