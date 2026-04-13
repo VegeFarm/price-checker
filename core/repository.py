@@ -339,7 +339,7 @@ def get_latest_run(session: Session) -> RunHistory | None:
 
 
 def _price_to_int(price_text: str) -> int | None:
-    text = str(price_text or '').replace(',', '').strip()
+    text = str(price_text or '').replace(',', '').replace('원', '').strip()
     if not text:
         return None
     try:

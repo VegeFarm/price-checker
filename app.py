@@ -5,20 +5,6 @@ from core.runner import run_price_check
 from core.repository import get_latest_run, build_run_side_summary
 
 
-def render_large_gap_summary(large_gap_items: list[dict]) -> None:
-    st.subheader('가격 차이 비교')
-    if large_gap_items:
-        for item in large_gap_items:
-            st.markdown(
-                f"- **{item['item_name']}**\n"
-                f"  - 우리 {item['our_price']} | 평균 {item['avg_price']} | 최저 {item['min_price']}({item['min_mall']})\n"
-                f"  - 평균 {item['avg_diff_amount']} ({item['avg_diff_ratio']}) | 최저 {item['min_diff_amount']} ({item['min_diff_ratio']})\n"
-                f"  - {item['status_text']}"
-            )
-    else:
-        st.caption('크게 벌어진 품목이 없습니다.')
-
-
 def render_missing_price_summary(missing_price_items: list[dict]) -> None:
     st.subheader('가격 없음')
     if missing_price_items:
@@ -61,7 +47,7 @@ session = get_session()
 try:
     latest_run = get_latest_run(session)
     if latest_run and latest_run.message_text:
-        large_gap_items, missing_price_items = build_run_side_summary(latest_run)
+        _, missing_price_items = build_run_side_summary(latest_run)
         left, right = st.columns([2.2, 1])
         with left:
             st.text_area('결과 복사', value=latest_run.message_text, height=420)

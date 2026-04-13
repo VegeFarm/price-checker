@@ -1,14 +1,22 @@
+import html
+import re
 import streamlit as st
 from core.auth import ensure_login
 from core.db import create_tables, get_session
 from core.repository import (
     get_recent_runs_meta,
     get_run_history,
+    get_previous_run,
     build_run_side_summary,
+    build_our_price_map,
 )
 
 
-def render_side_summary(large_gap_items: list[dict], missing_price_items: list[dict]) -> None:
+PLUS_COLOR = '#66C6F2'
+MINUS_COLOR = '#F48FB1'
+
+
+def render_large_gap_summary(large_gap_items: list[dict]) -> None:
     st.subheader('가격 차이 비교')
     if large_gap_items:
         for item in large_gap_items:
@@ -21,13 +29,69 @@ def render_side_summary(large_gap_items: list[dict], missing_price_items: list[d
     else:
         st.caption('크게 벌어진 품목이 없습니다.')
 
-    st.subheader('가격 없음')
-    if missing_price_items:
-        for item in missing_price_items:
-            missing_text = ', '.join(item['missing_malls'])
-            st.markdown(f"- **{item['item_name']}**: {missing_text}")
-    else:
-        st.caption('가격이 비어 있는 품목이 없습니다.')
+
+def _price_to_int(price_text: str) -> int | None:
+    text = str(price_text or '').replace(',', '').replace('원', '').strip()
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except Exception:
+        return None
+
+
+def _parse_item_name(line: str) -> str | None:
+    if not line.startswith('*'):
+        return None
+    return line[1:].strip()
+
+
+def _parse_our_price_line(line: str) -> tuple[str, int | None] | None:
+    match = re.match(r'^\s*(우리)\s*-\s*(.*)$', line.strip())
+    if not match:
+        return None
+    price_text = match.group(2).strip()
+    return line, _price_to_int(price_text)
+
+
+def _format_delta_html(delta: int) -> str:
+    if delta == 0:
+        return ''
+    color = PLUS_COLOR if delta > 0 else MINUS_COLOR
+    sign = '+' if delta > 0 else '-'
+    return f' <span style="color: {color}; font-weight: 700;">({sign}{abs(delta):,})</span>'
+
+
+def build_message_html_with_previous_diff(message_text: str, previous_our_prices: dict[str, int]) -> str:
+    current_item = ''
+    rendered_lines: list[str] = []
+
+    for raw_line in message_text.splitlines():
+        line = raw_line.rstrip()
+        item_name = _parse_item_name(line)
+        if item_name is not None:
+            current_item = item_name
+            rendered_lines.append(f'<strong>{html.escape(line)}</strong>')
+            continue
+
+        parsed = _parse_our_price_line(line)
+        if parsed and current_item:
+            original_line, current_price = parsed
+            previous_price = previous_our_prices.get(current_item)
+            base_html = html.escape(original_line)
+            if current_price is not None and previous_price is not None:
+                delta = current_price - previous_price
+                rendered_lines.append(base_html + _format_delta_html(delta))
+            else:
+                rendered_lines.append(base_html)
+            continue
+
+        if line:
+            rendered_lines.append(html.escape(line))
+        else:
+            rendered_lines.append('&nbsp;')
+
+    return '<div style="line-height: 1.8; white-space: pre-wrap;">' + '<br>'.join(rendered_lines) + '</div>'
 
 
 create_tables()
@@ -48,12 +112,15 @@ try:
     selected_label = st.selectbox('저장된 실행 결과', list(option_map.keys()))
     run = get_run_history(session, option_map[selected_label])
     if run:
-        large_gap_items, missing_price_items = build_run_side_summary(run)
-        left, right = st.columns([2.2, 1])
-        with left:
-            st.subheader('결과')
-            st.text(run.message_text)
-        with right:
-            render_side_summary(large_gap_items, missing_price_items)
+        large_gap_items, _ = build_run_side_summary(run)
+        previous_run = get_previous_run(session, run.id)
+        previous_our_prices = build_our_price_map(previous_run)
+
+        left_pad, center_col, right_pad = st.columns([1, 1.8, 1])
+        with center_col:
+            render_large_gap_summary(large_gap_items)
+
+        st.subheader('결과')
+        st.markdown(build_message_html_with_previous_diff(run.message_text, previous_our_prices), unsafe_allow_html=True)
 finally:
     session.close()
